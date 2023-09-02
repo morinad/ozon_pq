@@ -12,11 +12,11 @@ FuncType = type function (
     ]),
     report as (type  text meta [
         Documentation.FieldCaption = "Тип отчёта:",
-         Documentation.AllowedValues = { "Остатки", "Товары", "Продажи", "Возвраты FBO", "Возвраты FBS"}
+         Documentation.AllowedValues = {"Транзакции", "Остатки", "Товары", "Продажи", "Возвраты FBO", "Возвраты FBS"}
     ]),
     date1 as (type nullable text meta [
         Documentation.FieldCaption = "Дата начала:",
-        Documentation.SampleValues = {"2022-02-28"}
+        Documentation.SampleValues = {"2023-02-28"}
     ]),
     date2 as (type nullable text meta [
         Documentation.FieldCaption = "Дата окончания:",

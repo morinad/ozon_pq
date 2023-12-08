@@ -12,7 +12,7 @@ FuncType = type function (
     ]),
     report as (type  text meta [
         Documentation.FieldCaption = "Тип отчёта:",
-         Documentation.AllowedValues = {"Транзакции", "Остатки", "Товары", "Продажи", "Возвраты FBO", "Возвраты FBS"}
+         Documentation.AllowedValues = {"Транзакции", "Остатки", "Товары", "Продажи", "Возвраты FBO", "Возвраты FBS", "Отправления FBO", "Финансовый отчёт", "Финансовый отчёт (детали)"}
     ]),
     date1 as (type nullable text meta [
         Documentation.FieldCaption = "Дата начала:",
@@ -46,6 +46,9 @@ if report="Транзакции" then transactionGetAll(client, token, date1, da
 if report="Товары" then products(client,token) else 
 if report="Продажи" then sales(client, token, date1, date2) else 
 if report="Возвраты FBO" then returns_fbo(client,token) else
+if report="Отправления FBO" then FBOpostings(client,token, date1, date2) else 
+if report="Финансовый отчёт" then cashFlowsFunc(client,token, date1, date2) else 
+if report="Финансовый отчёт (детали)" then cashFlowDetailsFunc(client,token, date1, date2) else 
 if report="Возвраты FBS" then returns_fbs(client,token) else "Неизвестный отчёт"
 in final;
 
@@ -55,6 +58,94 @@ dateFunc=(dat)=>
        else if dat = "today" then Date.ToText(Date.From(DateTime.LocalNow()),"yyyy-MM-dd")
        else if (try Number.From(Text.BeforeDelimiter(dat,"daysAgo")) otherwise 0) >0 then Date.ToText(Date.AddDays(Date.From(DateTime.LocalNow()),-1*Number.From(Text.BeforeDelimiter(dat,"daysAgo"))),"yyyy-MM-dd") 
        else Date.ToText(Date.From(dat),"yyyy-MM-dd");
+
+
+getCashFlowsFunc = (client as text , token as text, date1 as text , date2 as  text, page as text )=>
+let 
+    url = "https://api-seller.ozon.ru/v1/finance/cash-flow-statement/list",
+    postData = Json.FromValue(
+        [ #"date" = [#"from" = dateFunc(date1) & "T00:00:00.000Z" , to= dateFunc(date2) & "T23:59:59.999Z" ], 
+        page = Number.From(page) , page_size = 100, with_details = true ]
+        ),
+    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token], Content=postData, ManualStatusHandling = {404,400}] )),
+    result = Source[result],
+    cash_flows = result[cash_flows],
+    totable = Table.FromList(cash_flows, Splitter.SplitByNothing(), null, null, ExtraValues.Error),
+    expand = Table.ExpandRecordColumn(totable, "Column1", Record.FieldNames(totable{0}[Column1]), Record.FieldNames(totable{0}[Column1]))
+in
+    expand;
+
+
+getCashFlowDetailsFunc = (client as text , token as text, date1 as text , date2 as  text, page as text )=>
+let 
+    url = "https://api-seller.ozon.ru/v1/finance/cash-flow-statement/list",
+    postData = Json.FromValue(
+        [ #"date" = [#"from" = dateFunc(date1) & "T00:00:00.000Z" , to= dateFunc(date2) & "T23:59:59.999Z" ], 
+        page = Number.From(page) , page_size = 100, with_details = true ]
+        ),
+    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token], Content=postData, ManualStatusHandling = {404,400}] )),
+    result = Source[result],
+    details = result[details],
+    totable = Table.FromList(details, Splitter.SplitByNothing(), null, null, ExtraValues.Error),
+    expand = Table.ExpandRecordColumn(totable, "Column1", Record.FieldNames(totable{0}[Column1]), Record.FieldNames(totable{0}[Column1]))
+in
+    expand; 
+
+
+getCashFlowPageCountFunc = (client as text , token as text, date1 as text , date2 as  text )=>
+let 
+    url = "https://api-seller.ozon.ru/v1/finance/cash-flow-statement/list",
+    postData = Json.FromValue(
+        [ #"date" = [#"from" = dateFunc(date1) & "T00:00:00.000Z" , to= dateFunc(date2) & "T23:59:59.999Z" ], 
+        page = 1 , page_size = 100, with_details = true ]
+        ),
+    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token], Content=postData, ManualStatusHandling = {404,400}] )),
+    result = Source[result],
+    page_count = result[page_count]
+in  page_count;
+
+
+cashFlowsFunc=(client as text , token as text, date1 as text , date2 as  text)=>
+let 
+pages = {1..getCashFlowPageCountFunc(client, token, date1, date2)},
+accum = List.Accumulate(pages, Table.FromRows({{}}, {}) ,(st,cr)=> st & getCashFlowsFunc(client, token, date1,date2, Text.From(cr))),
+filter = Table.SelectRows(accum, each ([period] <> null))
+in  filter;
+
+
+cashFlowDetailsFunc = (client as text , token as text, date1 as text , date2 as  text)=>
+let 
+pages = {1..getCashFlowPageCountFunc(client, token, date1, date2)},
+accum = List.Accumulate(pages, Table.FromRows({{}}, {}) ,(st,cr)=> st & getCashFlowDetailsFunc(client, token, date1,date2, Text.From(cr))),
+filter = Table.SelectRows(accum, each ([period] <> null))
+in  filter;
+
+
+getFBOpostingList=
+(client as text , token as text, date1 as text , date2 as  text, offset as text )=>
+let 
+    url = "https://api-seller.ozon.ru/v2/posting/fbo/list",
+    postData = Json.FromValue(
+        [dir = "ASC", filter = [#"since" = dateFunc(date1) & "T00:00:00.000Z" , to= dateFunc(date2) & "T23:59:59.999Z" ], 
+        limit = 1000 , offset = Number.From(offset), translit = false, 
+        with = [#"analytics_data"= true, #"financial_data" = true] ]
+        ),
+    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token], Content=postData, ManualStatusHandling = {404,400}] )),
+    result = Source[result],
+    totable = Table.FromList(result, Splitter.SplitByNothing(), null, null, ExtraValues.Error),
+    expand = try Table.ExpandRecordColumn(totable, "Column1", Record.FieldNames(totable{0}[Column1]) ,Record.FieldNames(totable{0}[Column1]) ) otherwise totable
+in
+    expand;
+
+
+FBOpostings=
+(client as text, token as text, date1 as text, date2 as text)=>
+let  
+lists = List.Generate(()=>0, each Table.RowCount(getFBOpostingList(client, token, date1,date2,Text.From(_)))>0, each _ +1000),
+accum = List.Accumulate(lists, Table.FromRows({{}}, {}) ,(st,cr)=> st & getFBOpostingList(client, token, date1,date2, Text.From(cr))),
+filter = Table.SelectRows(accum, each ([created_at] <> null))
+in filter;
+
 
 transactionPageCount = (client as text, token as text, date1 as nullable text, date2 as nullable text) =>
 let 

@@ -12,7 +12,7 @@ FuncType = type function (
     ]),
     report as (type  text meta [
         Documentation.FieldCaption = "Тип отчёта:",
-         Documentation.AllowedValues = {"Транзакции", "Остатки", "Товары", "Продажи", "Возвраты FBO", "Возвраты FBS", "Отправления FBO", "Финансовый отчёт", "Финансовый отчёт (детали)"}
+         Documentation.AllowedValues = {"Транзакции", "Остатки", "Товары", "Продажи", "Возвраты", "Отправления FBO", "Финансовый отчёт", "Финансовый отчёт (детали)"}
     ]),
     date1 as (type nullable text meta [
         Documentation.FieldCaption = "Дата начала:",
@@ -45,11 +45,10 @@ if report="Остатки" then stock(client,token) else
 if report="Транзакции" then transactionGetAll(client, token, date1, date2) else 
 if report="Товары" then products(client,token) else 
 if report="Продажи" then sales(client, token, date1, date2) else 
-if report="Возвраты FBO" then returns_fbo(client,token) else
 if report="Отправления FBO" then FBOpostings(client,token, date1, date2) else 
 if report="Финансовый отчёт" then cashFlowsFunc(client,token, date1, date2) else 
 if report="Финансовый отчёт (детали)" then cashFlowDetailsFunc(client,token, date1, date2) else 
-if report="Возвраты FBS" then returns_fbs(client,token) else "Неизвестный отчёт"
+if report="Возвраты" then returns(client,token) else "Неизвестный отчёт"
 in final;
 
 
@@ -60,14 +59,16 @@ dateFunc=(dat)=>
        else Date.ToText(Date.From(dat),"yyyy-MM-dd");
 
 
-getCashFlowsFunc = (client as text , token as text, date1 as text , date2 as  text, page as text )=>
+getCashFlowsFunc =
+(client as text , token as text, date1 as text , date2 as  text, page as text )=>
 let 
-    url = "https://api-seller.ozon.ru/v1/finance/cash-flow-statement/list",
+    url = "https://api-seller.ozon.ru",
+    path = "v1/finance/cash-flow-statement/list",
     postData = Json.FromValue(
         [ #"date" = [#"from" = dateFunc(date1) & "T00:00:00.000Z" , to= dateFunc(date2) & "T23:59:59.999Z" ], 
         page = Number.From(page) , page_size = 100, with_details = true ]
         ),
-    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token], Content=postData, ManualStatusHandling = {404,400}] )),
+    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token], RelativePath = path, Content=postData, ManualStatusHandling = {404,400}] )),
     result = Source[result],
     cash_flows = result[cash_flows],
     totable = Table.FromList(cash_flows, Splitter.SplitByNothing(), null, null, ExtraValues.Error),
@@ -76,36 +77,41 @@ in
     expand;
 
 
-getCashFlowDetailsFunc = (client as text , token as text, date1 as text , date2 as  text, page as text )=>
+getCashFlowDetailsFunc=
+(client as text , token as text, date1 as text , date2 as  text, page as text )=>
 let 
-    url = "https://api-seller.ozon.ru/v1/finance/cash-flow-statement/list",
+    url = "https://api-seller.ozon.ru",
+    path="v1/finance/cash-flow-statement/list",
     postData = Json.FromValue(
         [ #"date" = [#"from" = dateFunc(date1) & "T00:00:00.000Z" , to= dateFunc(date2) & "T23:59:59.999Z" ], 
         page = Number.From(page) , page_size = 100, with_details = true ]
         ),
-    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token], Content=postData, ManualStatusHandling = {404,400}] )),
+    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token], RelativePath = path, Content=postData, ManualStatusHandling = {404,400}] )),
     result = Source[result],
     details = result[details],
     totable = Table.FromList(details, Splitter.SplitByNothing(), null, null, ExtraValues.Error),
     expand = Table.ExpandRecordColumn(totable, "Column1", Record.FieldNames(totable{0}[Column1]), Record.FieldNames(totable{0}[Column1]))
 in
-    expand; 
+    expand;
 
 
-getCashFlowPageCountFunc = (client as text , token as text, date1 as text , date2 as  text )=>
+getCashFlowPageCountFunc =
+(client as text , token as text, date1 as text , date2 as  text )=>
 let 
-    url = "https://api-seller.ozon.ru/v1/finance/cash-flow-statement/list",
+    url = "https://api-seller.ozon.ru",
+   path = "v1/finance/cash-flow-statement/list",
     postData = Json.FromValue(
         [ #"date" = [#"from" = dateFunc(date1) & "T00:00:00.000Z" , to= dateFunc(date2) & "T23:59:59.999Z" ], 
         page = 1 , page_size = 100, with_details = true ]
         ),
-    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token], Content=postData, ManualStatusHandling = {404,400}] )),
+    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token],RelativePath = path, Content=postData, ManualStatusHandling = {404,400}] )),
     result = Source[result],
     page_count = result[page_count]
 in  page_count;
 
 
-cashFlowsFunc=(client as text , token as text, date1 as text , date2 as  text)=>
+cashFlowsFunc=
+(client as text , token as text, date1 as text , date2 as  text)=>
 let 
 pages = {1..getCashFlowPageCountFunc(client, token, date1, date2)},
 accum = List.Accumulate(pages, Table.FromRows({{}}, {}) ,(st,cr)=> st & getCashFlowsFunc(client, token, date1,date2, Text.From(cr))),
@@ -113,7 +119,8 @@ filter = Table.SelectRows(accum, each ([period] <> null))
 in  filter;
 
 
-cashFlowDetailsFunc = (client as text , token as text, date1 as text , date2 as  text)=>
+cashFlowDetailsFunc =
+(client as text , token as text, date1 as text , date2 as  text)=>
 let 
 pages = {1..getCashFlowPageCountFunc(client, token, date1, date2)},
 accum = List.Accumulate(pages, Table.FromRows({{}}, {}) ,(st,cr)=> st & getCashFlowDetailsFunc(client, token, date1,date2, Text.From(cr))),
@@ -124,13 +131,14 @@ in  filter;
 getFBOpostingList=
 (client as text , token as text, date1 as text , date2 as  text, offset as text )=>
 let 
-    url = "https://api-seller.ozon.ru/v2/posting/fbo/list",
+    url = "https://api-seller.ozon.ru",
+    path = "v2/posting/fbo/list",
     postData = Json.FromValue(
         [dir = "ASC", filter = [#"since" = dateFunc(date1) & "T00:00:00.000Z" , to= dateFunc(date2) & "T23:59:59.999Z" ], 
         limit = 1000 , offset = Number.From(offset), translit = false, 
         with = [#"analytics_data"= true, #"financial_data" = true] ]
         ),
-    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token], Content=postData, ManualStatusHandling = {404,400}] )),
+    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token], RelativePath = path, Content=postData, ManualStatusHandling = {404,400}] )),
     result = Source[result],
     totable = Table.FromList(result, Splitter.SplitByNothing(), null, null, ExtraValues.Error),
     expand = try Table.ExpandRecordColumn(totable, "Column1", Record.FieldNames(totable{0}[Column1]) ,Record.FieldNames(totable{0}[Column1]) ) otherwise totable
@@ -141,17 +149,19 @@ in
 FBOpostings=
 (client as text, token as text, date1 as text, date2 as text)=>
 let  
-lists = List.Generate(()=>0, each Table.RowCount(getFBOpostingList(client, token, date1,date2,Text.From(_)))>0, each _ +1000),
-accum = List.Accumulate(lists, Table.FromRows({{}}, {}) ,(st,cr)=> st & getFBOpostingList(client, token, date1,date2, Text.From(cr))),
+lists = List.Generate(()=>0, each Table.RowCount( (try getFBOpostingList(client, token, date1,date2,Text.From(_)) otherwise Table.FromRows({{}}, {})) )>0, each _ +1000),
+accum = List.Accumulate(lists, Table.FromRows({{}}, {}) ,(st,cr)=> try (st & getFBOpostingList(client, token, date1,date2, Text.From(cr))) otherwise st ),
 filter = Table.SelectRows(accum, each ([created_at] <> null))
 in filter;
 
 
+
 transactionPageCount = (client as text, token as text, date1 as nullable text, date2 as nullable text) =>
 let 
-    url = "https://api-seller.ozon.ru/v3/finance/transaction/list",
+    url = "https://api-seller.ozon.ru",
+    path = "v3/finance/transaction/list",
     postData = Json.FromValue([filter = [#"date" = [from = dateFunc(date1) & "T00:00:00.000Z" , to= dateFunc(date2) & "T23:59:59.999Z" ]], page = 1, page_size = 1000]),
-    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token], Content=postData, ManualStatusHandling = {404,400}] )),
+    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token], RelativePath = path, Content=postData, ManualStatusHandling = {404,400}] )),
     result = Source[result],
     page_count =  try Number.From(result[page_count]) otherwise 0
 in
@@ -159,13 +169,15 @@ in
 
 transactionGetData = (client as text, token as text,  date1 as  text, date2 as text, page as number) =>
 let 
-    url = "https://api-seller.ozon.ru/v3/finance/transaction/list",
+    url = "https://api-seller.ozon.ru",
+    path = "v3/finance/transaction/list",
     postData = Json.FromValue([filter = [#"date" = [from = dateFunc(date1) & "T00:00:00.000Z" , to= dateFunc(date2) & "T23:59:59.999Z" ]], page = page, page_size = 1000]),
-    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token], Content=postData, ManualStatusHandling = {404,400}] )),
+    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token],RelativePath = path, Content=postData, ManualStatusHandling = {404,400}] )),
     result = Source[result],
     operations = result[operations]
 in
     operations;
+
 
 
 transactionGetAll = (client as text, token as text, date1 as text, date2 as text) =>
@@ -196,9 +208,12 @@ in
 
 getSales =  (month as text, client as text, token as text)=>
 let 
-    url = "https://api-seller.ozon.ru/v1/finance/realization",
-    postData = Json.FromValue([date = month]),
-    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token], ManualStatusHandling = {404,400}, Content=postData])),
+    url = "https://api-seller.ozon.ru",
+    path = "v2/finance/realization",
+    month_num = Number.From(Text.Split(month, "-"){1}),
+    year_num = Number.From(Text.Split(month, "-"){0}),
+    postData = Json.FromValue([month = month_num, year = year_num]),
+    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token], RelativePath = path, ManualStatusHandling = {404,400}, Content=postData])),
     #"Преобразовано в таблицу" = Source[result][rows],
     #"Преобразовано в таблицу2" = Table.FromList(#"Преобразовано в таблицу", Splitter.SplitByNothing(), null, null, ExtraValues.Error)
 in
@@ -207,19 +222,22 @@ in
 
 getNextTokenReturns = (client as text, token as text, last as text )=>
 let 
-    url = "https://api-seller.ozon.ru/v3/returns/company/fbo",
-    postData = Json.FromValue([limit = 1000, last_id = last]),
-    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token], Content=postData])),
-    result = Text.From(Source[last_id])
+    url = "https://api-seller.ozon.ru",
+    path = "/v1/returns/list",
+    postData = Json.FromValue([limit = 500, last_id = last]),
+    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token],RelativePath = path, Content=postData])),
+    returns = Source[returns],
+    lastid = List.Last(returns)[id]
 in
-    result;
+    Text.From(lastid);
 
 
 getReturns = (client as text, token as text, last as text)=>
 let 
-    url = "https://api-seller.ozon.ru/v3/returns/company/fbo",
-    postData = Json.FromValue([limit = 1000, last_id = last]),
-    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token], Content=postData])),
+    url = "https://api-seller.ozon.ru",
+    path = "/v1/returns/list",
+    postData = Json.FromValue([limit = 500, last_id = Number.From(last)]),
+    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token], RelativePath = path, Content=postData])),
     result = Source[returns]
 in
     result;
@@ -227,9 +245,10 @@ in
     
 getNextToken = (client as text, token as text, last as text )=>
 let 
-    url = "https://api-seller.ozon.ru/v2/product/list",
-    postData = Json.FromValue([limit = 1000, last_id = last, with= [attributes_data= true]]),
-    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token], Content=postData])),
+    url = "https://api-seller.ozon.ru",
+    path = "v3/product/list",
+    postData = Json.FromValue([limit = 1000, last_id = last, filter= []]),
+    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token], RelativePath = path, Content=postData])),
     result = Source[result][last_id]
 in
     result;
@@ -237,9 +256,10 @@ in
     
 getProducts = (client as text, token as text, last as text)=>
 let 
-    url = "https://api-seller.ozon.ru/v2/product/list",
-    postData = Json.FromValue([limit = 1000, last_id = last, with= [attributes_data= true]]),
-    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token], Content=postData])),
+    url = "https://api-seller.ozon.ru",
+    path = "v3/product/list",
+    postData = Json.FromValue([limit = 1000, last_id = last, filter= []]),
+    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token], RelativePath = path, Content=postData])),
     result = Source[result],
     items = result[items]
 in
@@ -261,21 +281,26 @@ in
     
 getOffer = (off_id as text, client as text, token as text) => 
 let 
-    url = "https://api-seller.ozon.ru/v2/product/info",
-    postData = Json.FromValue( [offer_id = off_id]),
-    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json",  #"Client-Id"=client, #"Api-Key"=token], Content=postData]))
+    url = "https://api-seller.ozon.ru",
+    path = "/v3/product/info/list",
+    postData = Json.FromValue( [offer_id = {off_id}]),
+    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json",  #"Client-Id"=client, #"Api-Key"=token], RelativePath = path, Content=postData]))
 in
-    Source;
+    Source;  
 
 offsetList = (rows,limit)=> List.Accumulate({0..Number.RoundDown(rows/limit-0.0000000001)}, {}, (state, current)=>state&{current*limit} );
 
 
-returns_fbo = (client as text, token as text)=>
+
+
+returns = (client as text, token as text)=>
 let 
-    url = "https://api-seller.ozon.ru/v3/returns/company/fbo",
-    postData = Json.FromValue([limit = 1000, last_id=0]),
-    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token], Content=postData])),
-    result = Source[last_id],
+    url = "https://api-seller.ozon.ru",
+    path = "/v1/returns/list",
+    postData = Json.FromValue([limit = 500, last_id=0]),
+    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token], RelativePath = path, Content=postData])),
+    returns = Source[returns],
+    result = List.Last(returns)[id],
     tokenList = {"0"} & List.Generate(()=> Text.From(result), each _ <> null and _ <> "" and Number.From(_)>0, each getNextTokenReturns(client,token,_)),
     #"Преобразовано в таблицу" = Table.FromList(tokenList, Splitter.SplitByNothing(), null, null, ExtraValues.Error),
     #"Измененный тип" = Table.TransformColumnTypes(#"Преобразовано в таблицу",{{"Column1", type text}}),
@@ -288,27 +313,11 @@ in
     #"Развернутый элемент data";
 
 
-returns_fbs = (client as text, token as text)=>
-let 
-    url = "https://api-seller.ozon.ru/v3/returns/company/fbs",
-    postData = Json.FromValue([limit = 1000, last_id=0]),
-    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token], Content=postData])),
-    result = Source[last_id],
-    tokenList = {"0"} & List.Generate(()=> Text.From(result), each _ <> null and _ <> "" and Number.From(_)>0, each getNextTokenReturns(client,token,_)),
-    #"Преобразовано в таблицу" = Table.FromList(tokenList, Splitter.SplitByNothing(), null, null, ExtraValues.Error),
-    #"Измененный тип" = Table.TransformColumnTypes(#"Преобразовано в таблицу",{{"Column1", type text}}),
-    #"Добавлен пользовательский объект" = Table.AddColumn(#"Измененный тип", "data", each getReturns(client, token, [Column1])),
-    #"Добавлен пользовательский объект1" = Table.AddColumn(#"Добавлен пользовательский объект", "length", each List.Count([data])),
-    #"Строки с примененным фильтром" = Table.SelectRows(#"Добавлен пользовательский объект1", each [length] > 0),
-    #"Другие удаленные столбцы" = Table.SelectColumns(#"Строки с примененным фильтром",{"data"}),
-    #"Развернутый элемент data" = Table.ExpandListColumn(#"Другие удаленные столбцы", "data")
-in
-    #"Развернутый элемент data";
 
 
 sales = (client as text, token as text, date1 as nullable text, date2 as nullable text )=>
 let
-    date11 = if date1 = null then "2022-01-01" else dateFunc(date1),
+    date11 = if date1 = null then "2024-01-01" else dateFunc(date1),
     date22 = if date2 = null then Date.ToText(Date.AddDays(Date.From(DateTime.LocalNow()) , -1), "yyyy-MM-dd") else dateFunc(date2),
     Источник = dateTable(Date.From(date11), Date.From(date22)),
     get = Table.AddColumn(Источник, "data", each try getSales([Месяц], client, token) otherwise null),
@@ -320,9 +329,10 @@ in
 
 products = (client as text, token as text)=>
 let 
-    url = "https://api-seller.ozon.ru/v2/product/list",
-    postData = Json.FromValue([limit = 1000, last_id = "", with= [attributes_data= true]]),
-    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token], Content=postData])),
+    url = "https://api-seller.ozon.ru",
+    path = "v3/product/list",
+    postData = Json.FromValue([limit = 1000, last_id = "", filter= []]),
+    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token], RelativePath = path, Content=postData])),
     result = Source[result],
     tokenList = {""} & List.Generate(()=> result[last_id], each _ <> null and _ <> "", each getNextToken(client,token,_)),
     #"Преобразовано в таблицу" = Table.FromList(tokenList, Splitter.SplitByNothing(), null, null, ExtraValues.Error),
@@ -335,7 +345,7 @@ let
     #"Развернутый" = Table.ExpandRecordColumn(#"Развернутый элемент data", "data", {"product_id", "offer_id", "is_fbo_visible", "is_fbs_visible", "archived", "is_discounted"}, {"product_id", "offer_id", "is_fbo_visible", "is_fbs_visible", "archived", "is_discounted"}),
     #"Измененный тип123" = Table.TransformColumnTypes(#"Развернутый",{{"offer_id", type text}}),
     #"added" = Table.AddColumn(#"Измененный тип123", "Пользовательский", each getOffer([offer_id], client, token)),
-    #"Развернутый элемент Пользовательский" = Table.ExpandRecordColumn(#"added", "Пользовательский", {"result"}, {"result"})
+    #"Развернутый элемент Пользовательский" = Table.ExpandRecordColumn(#"added", "Пользовательский", {"items"}, {"items"})
 in
     #"Развернутый элемент Пользовательский";
 
@@ -355,9 +365,10 @@ in
 getStockLen=(client as text, token as text, off as text)=>
 let 
  
-    url = "https://api-seller.ozon.ru/v2/analytics/stock_on_warehouses",
+    url = "https://api-seller.ozon.ru",
+    path = "v2/analytics/stock_on_warehouses",
     postData = Json.FromValue([offset = off, limit = 100]),
-    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token], Content=postData, ManualStatusHandling = {404,400}] )),
+    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token], RelativePath = path, Content=postData, ManualStatusHandling = {404,400}] )),
     total_items = List.Count(Source[result][rows])
 in if off =-1 then 0 else total_items;
 
@@ -365,9 +376,10 @@ in if off =-1 then 0 else total_items;
 getStock=(client as text, token as text, off as text)=>
 let 
  
-    url = "https://api-seller.ozon.ru/v2/analytics/stock_on_warehouses",
+    url = "https://api-seller.ozon.ru",
+    path = "v2/analytics/stock_on_warehouses",
     postData = Json.FromValue([offset = off, limit = 100]),
-    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token], Content=postData, ManualStatusHandling = {404,400}] )),
+    Source = Json.Document(Web.Contents(url, [Headers=[#"Content-Type"="application/json", #"Client-Id"=client, #"Api-Key"=token], RelativePath = path, Content=postData, ManualStatusHandling = {404,400}] )),
     total_items = Source[result][rows]
 in if off =-1 then 0 else total_items;
 
